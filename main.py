@@ -1,5 +1,4 @@
 import datetime
-
 import requests
 import json
 import time
@@ -226,20 +225,20 @@ def main():
     client = bigquery.Client()
     table_id = 'eclipselegalmarketing.leaddocket.REDACTED'
 
-    def checkForTable(client, table_id):
+    def tableExists(client, table_id):
         try:
             table = client.get_table(table_id)  # Make an API request.
             return True
         except NotFound:
             return False
 
-    if not (checkForTable(client, table_id)):
-        leadsToChange = getLeadChangesSince(10)
-
-    else:
+    if not (tableExists(client, table_id)):
         # Calculate 3 years in minutes
         threeYears = 60 * 24 * 365 * 3
         leadsToChange = getLeadChangesSince(threeYears)
+
+    else:
+        leadsToChange = getLeadChangesSince(10)
 
     saveDataToFile("output.json", leadsToChange)
     # uploadToStaging(leadsToChange)
