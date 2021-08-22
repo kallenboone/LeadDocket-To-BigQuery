@@ -547,7 +547,7 @@ def get_lead_docket_headers():
     :return: headers (dict) a dictionary of headers to use for Lead Docket API requests
     """
     project_id = os.environ.get('PROJECT_ID')
-    secret_id = os.environ.get('LEAD_DOCKET_API_KEY_ID')
+    secret_id = os.environ.get('SECRET_ID')
 
     if not (project_id, secret_id):
         exit("Required environment variables not set. Please ensure PROJECT_ID and SECRET_ID have been configured"
@@ -572,7 +572,7 @@ def google_cloud_main(event, context):
       - A python 3.8 environment
       - A pub/sub topic trigger
       - Environmental variable set for DATASET_ID, PROD_TABLE_ID, STAGING_TABLE_ID,
-        LEAD_DOCKET_API_KEY_ID, PROJECT_ID, and LEAD_DOCKET_BASE_URL
+        SECRET_ID, PROJECT_ID, and LEAD_DOCKET_BASE_URL
 
     - Pub/Sub -
 
