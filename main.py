@@ -351,10 +351,10 @@ def normalize_lead(detailed_lead):
     def _normalize_person_field(json_data, field):
         if not json_data[field]:
             json_data[field] = {
-                "firstname": "None",
-                "lastname": "None",
-                "email": "None",
-                "code": "None"
+                "FirstName": "None",
+                "LastName": "None",
+                "Email": "None",
+                "Code": "None"
             }
 
         return json_data
@@ -362,7 +362,7 @@ def normalize_lead(detailed_lead):
     def _normalize_referral_field(json_data, field):
         if not json_data[field]:
             json_data[field] = {
-                "name": "None",
+                "Name": "None",
             }
 
         return json_data

@@ -62,7 +62,7 @@ For RunTime Environment Variables, the following variables need to be set:
   - SECRET_ID: The name of the LeadDocket API key stored in Google Secret Manager (created in step 1)
   - DATASET_ID: The name of the dataset to store the LeadDocket data
   - PROD_TABLE_ID: The name of production table used to store LeadDocket data
-  - PROD_TABLE_ID: The name of the staging table used to upsert LeadDocket data
+  - STAGING_TABLE_ID: The name of the staging table used to upsert LeadDocket data
   - LEAD_DOCKET_BASE_URL: The base url for LeadDocket API for a specific client (client.leaddocket.com/api)
 
 Click "Save" to move on to the "Code" section of the deployment.
