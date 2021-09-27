@@ -254,7 +254,14 @@ def upload_to_bigquery(leads, table_id, write_mode):
                 bigquery.SchemaField("creator_firstname", "STRING"),
                 bigquery.SchemaField("creator_lastname", "STRING"),
                 bigquery.SchemaField("creator_email", "STRING"),
-                bigquery.SchemaField("creator_code", "STRING")],
+                bigquery.SchemaField("creator_code", "STRING"),
+                bigquery.SchemaField("phonecall_id", "INTEGER"),
+                bigquery.SchemaField("phonecall_callfrom", "STRING"),
+                bigquery.SchemaField("phonecall_callto", "STRING"),
+                bigquery.SchemaField("phonecall_callsid", "STRING"),
+                bigquery.SchemaField("phonecall_label", "STRING"),
+                bigquery.SchemaField("phonecall_recordingurl", "STRING"),
+                bigquery.SchemaField("phonecall_createddate", "DATETIME")],
         write_disposition=write_mode,
         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON)
 
@@ -351,10 +358,10 @@ def normalize_lead(detailed_lead):
     def _normalize_person_field(json_data, field):
         if not json_data[field]:
             json_data[field] = {
-                "FirstName": "None",
-                "LastName": "None",
-                "Email": "None",
-                "Code": "None"
+                "FirstName": None,
+                "LastName": None,
+                "Email": None,
+                "Code": None
             }
 
         return json_data
@@ -362,9 +369,22 @@ def normalize_lead(detailed_lead):
     def _normalize_referral_field(json_data, field):
         if not json_data[field]:
             json_data[field] = {
-                "Name": "None",
+                "Name": None,
             }
 
+        return json_data
+
+    def _normalize_phonecall_field(json_data, field):
+        if not json_data[field]:
+            json_data[field] = {
+                "Id": None,
+                "CallFrom": None,
+                "CallTo": None,
+                "CallSID": None,
+                "Label": None,
+                "RecordingUrl": None,
+                "CreatedDate": None
+            }
         return json_data
 
     if detailed_lead['Contact']['Birthdate']:
@@ -379,6 +399,7 @@ def normalize_lead(detailed_lead):
     detailed_lead = _normalize_person_field(detailed_lead, "Intake")
     detailed_lead = _normalize_referral_field(detailed_lead, "ReferredBy")
     detailed_lead = _normalize_referral_field(detailed_lead, "ReferredTo")
+    detailed_lead = _normalize_phonecall_field(detailed_lead, "PhoneCall")
 
     new_lead = {}
     new_lead['id'] = detailed_lead['Id']
@@ -451,6 +472,13 @@ def normalize_lead(detailed_lead):
     new_lead['creator_lastname'] = detailed_lead['Creator']['LastName']
     new_lead['creator_email'] = detailed_lead['Creator']['Email']
     new_lead['creator_code'] = detailed_lead['Creator']['Code']
+    new_lead['phonecall_id'] = detailed_lead['PhoneCall']['Id']
+    new_lead['phonecall_callfrom'] = detailed_lead['PhoneCall']['CallFrom']
+    new_lead['phonecall_callto'] = detailed_lead['PhoneCall']['CallTo']
+    new_lead['phonecall_callsid'] = detailed_lead['PhoneCall']['CallSID']
+    new_lead['phonecall_label'] = detailed_lead['PhoneCall']['Label']
+    new_lead['phonecall_recordingurl'] = detailed_lead['PhoneCall']['RecordingUrl']
+    new_lead['phonecall_createddate'] = detailed_lead['PhoneCall']['CreatedDate']
 
     return new_lead
 
