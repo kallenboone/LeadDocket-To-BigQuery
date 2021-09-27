@@ -321,7 +321,10 @@ def upsert_to_bigquery(prod_table_id, staging_table_id):
           investigator_lastname = staging.investigator_lastname, investigator_email = staging.investigator_email, 
           investigator_code = staging.investigator_code, attorney_firstname = staging.attorney_firstname, 
           attorney_lastname = staging.attorney_lastname,attorney_email = staging.attorney_email, 
-          attorney_code = staging.attorney_code
+          attorney_code = staging.attorney_code, phonecall_id = staging.phonecall_id,
+          phonecall_callfrom = staging.phonecall_callfrom, phonecall_callto = staging.phonecall_callto,
+          phonecall_callsid = staging.phonecall_callsid, phonecall_label = staging.phonecall_label,
+          phonecall_recordingurl = staging.phonecall_recordingurl, phonecall_createddate = staging.phonecall_createddate
         WHEN NOT MATCHED THEN
           INSERT ROW
     """
