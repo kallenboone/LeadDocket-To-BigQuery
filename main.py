@@ -7,8 +7,8 @@ import json
 import ndjson
 import time
 from urllib.parse import urljoin
-from google.cloud import bigquery, secretmanager
-from google.api_core.exceptions import ClientError
+from google.cloud import bigquery, secretmanager, pubsub_v1
+from google.api_core.exceptions import ClientError, Conflict
 from google.cloud.exceptions import NotFound
 
 # The total amount of leads found in the time period
@@ -19,6 +19,12 @@ TOTALREQUESTS = 0
 LEAD_DOCKET_BASE_URL = os.environ.get('LEAD_DOCKET_BASE_URL')
 if not (LEAD_DOCKET_BASE_URL):
     exit("Required environment variables not set. Please set the LEAD_DOCKET_BASE_URL variable.")
+# The number of leads to process in one batch
+BATCH_SIZE = int(os.environ.get('BATCH_SIZE', '100'))
+# The project for the pubsub topic
+PUBSUB_PROJECT_ID = os.environ.get('PUBSUB_PROJECT_ID')
+# The pubsub topic
+PUBSUB_TOPIC_ID = os.environ.get('PUBSUB_TOPIC_ID')
 
 def convert_to_newline_delimeted_json(jsonData):
     """ Converts JSOn to Newline Delimited JSON
@@ -57,20 +63,34 @@ def handle_api_errors(response, url, headers):
     :return response (dict) the retried response
     """
     global TOTALREQUESTS
-    if (response.status_code != 200):
+    retries = 0
+    max_retries = 5 # TODO move to global env
+    while (response.status_code != 200 and retries <= max_retries):
+        retries += 1
         print(f"API requests have started to fail with status code: {response.status_code}")
         if (response.status_code == 429):
             print(f"Headers for this response are: {response.headers}")
+
+            now = time.time()
+            reset_time = float(response.headers.get('X-RateLimit-Reset'))
+            sleep_time = reset_time - now
+            # Check for 0 value and pad time with one second
+            sleep_time = sleep_time + 1 if sleep_time > 0 else 1
+            print(f"Now: {now}; reset_time: {reset_time}; sleep_time: {sleep_time}")
+            
             print(f"Rate limits hit at {datetime.datetime.now()} and after {TOTALREQUESTS} requests, trying again "
-                         f"in 2 minutes")
-            time.sleep(120)
+                         f"in {sleep_time} seconds)")
+            time.sleep(sleep_time)
         else:
             print(f"Unexpected error, trying again in 1 minute")
             time.sleep(60)
 
+        print(f"Retry #{retries} of max {max_retries}")
         response = requests.get(url, headers=headers)
         TOTALREQUESTS +=1
-
+    print(f"X-RateLimit-Remaining: {response.headers.get('X-RateLimit-Remaining')}; " 
+        f"X-RateLimit-Reset: {response.headers.get('X-RateLimit-Reset')}; "
+        f"X-RateLimit-Limit: {response.headers.get('X-RateLimit-Limit')}")
     return response
 
 def convert_datetime_to_date(datetime_string):
@@ -644,26 +664,63 @@ def google_cloud_main(event, context):
         except NotFound:
             return False
 
-    # By default, Python reads input as a string. Convert the string to an integer.
-    pub_sub_time = int(base64.b64decode(event['data']).decode('utf-8'))
     headers = get_lead_docket_headers()
-    leads_to_update = get_lead_changes_since(pub_sub_time, headers)
-    detailed_leads = get_lead_details(leads_to_update, headers)
 
-    if not (_dataset_exists(client, dataset_id)):
-        print(f"The {dataset_id} dataset does not exist. Creating dataset...")
-        dataset = bigquery.Dataset(dataset_id)
-        dataset.location = "US"
-        client.create_dataset(dataset, timeout=30)
-        print(f"The {dataset_id} dataset has been created")
+    try:
+        # try to convert event data to a JSON object
+        event_data = json.loads(base64.b64decode(event['data']).decode('utf-8'))
+    except json.JSONDecodeError as e:
+        print(f"Error reading event param: {e}")
 
+    if(isinstance(event_data, int)):
+        # By default, Python reads input as a string. Convert the string to an integer.
+        pub_sub_time = int(base64.b64decode(event['data']).decode('utf-8'))
+        leads_to_update = [{ "Id": lead["Id"] } for lead in get_lead_changes_since(pub_sub_time, headers)]
+        batches = [leads_to_update[i:i+BATCH_SIZE] for i in range(0, len(leads_to_update), BATCH_SIZE)]
+        print(f"{len(batches)} batches to process with batch size {BATCH_SIZE}.")
 
-    if not (_table_exists(client, prod_table_id)):
-        # If the prod table doesn't exist, write directly to the prod table
-        upload_to_bigquery(convert_to_newline_delimeted_json(detailed_leads), prod_table_id, write_mode=bigquery.WriteDisposition.WRITE_EMPTY)
+        # setup pub sub api service
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(PUBSUB_PROJECT_ID, PUBSUB_TOPIC_ID)
 
+        i = 0
+        for batch in batches:
+            print(f"publishing batch {i}")
+            i += 1
+            publisher.publish(topic_path, json.dumps({'leads':batch, 'batch_num': i}).encode('utf-8'))
     else:
-        # If the prod table already exists, overwrite the staging page
-        upload_to_bigquery(convert_to_newline_delimeted_json(detailed_leads), staging_table_id, write_mode=bigquery.WriteDisposition.WRITE_TRUNCATE)
-        # Merge the staging table into the production table
-        upsert_to_bigquery(prod_table_id, staging_table_id)
+        leads_to_update = event_data.get("leads")
+        global LEADCOUNT
+        LEADCOUNT = len(leads_to_update)
+        print(f"Batch #{event_data.get('batch_num')}: Updating {LEADCOUNT} leads... ")
+
+        detailed_leads = get_lead_details(leads_to_update, headers)
+        if not (_dataset_exists(client, dataset_id)):
+            print(f"The {dataset_id} dataset does not exist. Creating dataset...")
+            dataset = bigquery.Dataset(dataset_id)
+            dataset.location = "US"
+            client.create_dataset(dataset, timeout=30)
+            print(f"The {dataset_id} dataset has been created")
+
+
+        if not (_table_exists(client, prod_table_id)):
+            # If the prod table doesn't exist, write directly to the prod table
+            try:
+                # Parallel function execution could a create race condition where multiple
+                # cloud functions enter this if branch and one creates the table before the
+                # other, causing an error on the second creation attempt
+                upload_to_bigquery(convert_to_newline_delimeted_json(detailed_leads), prod_table_id, write_mode=bigquery.WriteDisposition.WRITE_EMPTY)
+            except Conflict as e:
+                print(f"Table already exists: {e}")
+                # TODO Messy duplicate code (with else branch below), consider refactoring
+                # If the prod table already exists, overwrite the staging page
+                upload_to_bigquery(convert_to_newline_delimeted_json(detailed_leads), staging_table_id, write_mode=bigquery.WriteDisposition.WRITE_TRUNCATE)
+                # Merge the staging table into the production table
+                upsert_to_bigquery(prod_table_id, staging_table_id)
+        else:
+            # If the prod table already exists, overwrite the staging page
+            upload_to_bigquery(convert_to_newline_delimeted_json(detailed_leads), staging_table_id, write_mode=bigquery.WriteDisposition.WRITE_TRUNCATE)
+            # Merge the staging table into the production table
+            upsert_to_bigquery(prod_table_id, staging_table_id)
+
+        print(f"Batch #{event_data.get('batch_num')} complete!")
